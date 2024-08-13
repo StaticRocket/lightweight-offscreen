@@ -19,5 +19,5 @@ preview the file you can use the following imagemagick string to convert the
 output to png:
 
 ```bash
-convert -depth 8 -size 1920x1080+0 -flip rgba:out.bin new.png
+magick -depth 8 -size 1920x1080+0 rgba:out.bin -flip new.png
 ```
