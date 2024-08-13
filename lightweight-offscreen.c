@@ -1,107 +1,178 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <GLES3/gl31.h>
+#include <GLES2/gl2.h>
 #include <assert.h>
 #include <fcntl.h>
-#include <gbm.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdlib.h>
 
-/* a dummy compute shader that does nothing */
-#define COMPUTE_SHADER_SRC \
+#define OUTPUT_FILENAME "out.bin"
+
+#define VERTEX_SHADER \
 	"                                            \
-#version 310 es\n                                                       \
-                                                                        \
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;        \
+attribute vec4 vPosition;                                               \
                                                                         \
 void main(void) {                                                       \
-   /* awesome compute code here */                                      \
+   gl_Position = vPosition;                                             \
 }                                                                       \
 "
+
+#define FRAGMENT_SHADER \
+	"                                            \
+precision mediump float;                                                \
+                                                                        \
+void main(void) {                                                       \
+   gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);                             \
+}                                                                       \
+"
+
+typedef struct _ContextData {
+	int width;
+	int height;
+	GLuint program;
+	EGLSurface surface;
+	EGLDisplay display;
+	EGLContext context;
+} ContextData;
+
+void dump(ContextData *data)
+{
+	GLubyte *buffer = malloc(1920 * 1080 * 4);
+	int fd;
+
+	glReadPixels(0, 0, data->width, data->height, GL_RGBA, GL_UNSIGNED_BYTE,
+		     buffer);
+
+	fd = open(OUTPUT_FILENAME, O_CREAT | O_WRONLY);
+	write(fd, buffer, 1920 * 1080 * 4);
+	free(buffer);
+}
+
+void draw(ContextData *data)
+{
+	GLfloat vVertices[] = { 0.0f, 0.5f, 0.0f,  -0.5f, -0.5f,
+				0.0f, 0.5f, -0.5f, 0.0f };
+	// Set the viewport
+	glViewport(0, 0, data->width, data->height);
+	// Clear the color buffer
+	glClear(GL_COLOR_BUFFER_BIT);
+	// Use the program object
+	glUseProgram(data->program);
+	// Load the vertex data
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, vVertices);
+	assert(glGetError() == GL_NO_ERROR);
+	glEnableVertexAttribArray(0);
+	glDrawArrays(GL_TRIANGLES, 0, 3);
+	eglSwapBuffers(data->display, data->surface);
+}
 
 int32_t main(int32_t argc, char *argv[])
 {
 	(void)argc;
 	(void)argv;
 	bool res;
-
-	int32_t fd = open("/dev/dri/renderD128", O_RDWR);
-	assert(fd > 0);
-
-	struct gbm_device *gbm = gbm_create_device(fd);
-	assert(gbm != NULL);
-
-	/* setup EGL from the GBM device */
-	EGLDisplay egl_dpy =
-		eglGetPlatformDisplay(EGL_PLATFORM_GBM_MESA, gbm, NULL);
-	assert(egl_dpy != NULL);
-
-	res = eglInitialize(egl_dpy, NULL, NULL);
-	assert(res);
-
-	const char *egl_extension_st = eglQueryString(egl_dpy, EGL_EXTENSIONS);
-	assert(strstr(egl_extension_st, "EGL_KHR_create_context") != NULL);
-	assert(strstr(egl_extension_st, "EGL_KHR_surfaceless_context") != NULL);
-
-	static const EGLint config_attribs[] = { EGL_RENDERABLE_TYPE,
-						 EGL_OPENGL_ES3_BIT_KHR,
-						 EGL_NONE };
 	EGLConfig cfg;
 	EGLint count;
+	ContextData data = { .width = 1920, .height = 1080 };
 
-	res = eglChooseConfig(egl_dpy, config_attribs, &cfg, 1, &count);
+	/* setup EGL from the GBM device */
+	data.display = eglGetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA,
+					     EGL_DEFAULT_DISPLAY, NULL);
+	assert(data.display != NULL);
+
+	res = eglInitialize(data.display, NULL, NULL);
+	assert(res);
+
+	static const EGLint config_attribs[] = { EGL_RED_SIZE,
+						 8,
+						 EGL_GREEN_SIZE,
+						 8,
+						 EGL_BLUE_SIZE,
+						 8,
+						 EGL_ALPHA_SIZE,
+						 8,
+						 EGL_SURFACE_TYPE,
+						 EGL_PBUFFER_BIT,
+						 EGL_RENDERABLE_TYPE,
+						 EGL_OPENGL_ES2_BIT,
+						 EGL_NONE };
+
+	res = eglChooseConfig(data.display, config_attribs, &cfg, 1, &count);
 	assert(res);
 
 	res = eglBindAPI(EGL_OPENGL_ES_API);
 	assert(res);
 
-	static const EGLint attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 3,
-					  EGL_NONE };
-	EGLContext core_ctx =
-		eglCreateContext(egl_dpy, cfg, EGL_NO_CONTEXT, attribs);
-	assert(core_ctx != EGL_NO_CONTEXT);
+	static const EGLint context_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2,
+						  EGL_NONE };
+	data.context = eglCreateContext(data.display, cfg, EGL_NO_CONTEXT,
+					context_attribs);
+	assert(data.context != EGL_NO_CONTEXT);
 
-	res = eglMakeCurrent(egl_dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, core_ctx);
+	EGLint surface_attribs[] = { EGL_WIDTH, 1920, EGL_HEIGHT, 1080,
+				     EGL_NONE };
+
+	data.surface =
+		eglCreatePbufferSurface(data.display, cfg, surface_attribs);
+	assert(data.surface != EGL_NO_SURFACE);
+
+	res = eglMakeCurrent(data.display, data.surface, data.surface,
+			     data.context);
 	assert(res);
 
-	/* setup a compute shader */
-	GLuint compute_shader = glCreateShader(GL_COMPUTE_SHADER);
+	data.program = glCreateProgram();
+
+	/* setup a vertex shader */
+	GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
 	assert(glGetError() == GL_NO_ERROR);
 
-	const char *shader_source = COMPUTE_SHADER_SRC;
-	glShaderSource(compute_shader, 1, &shader_source, NULL);
+	const char *shader_source = VERTEX_SHADER;
+	glShaderSource(vertex_shader, 1, &shader_source, NULL);
 	assert(glGetError() == GL_NO_ERROR);
 
-	glCompileShader(compute_shader);
+	glCompileShader(vertex_shader);
 	assert(glGetError() == GL_NO_ERROR);
 
-	GLuint shader_program = glCreateProgram();
-
-	glAttachShader(shader_program, compute_shader);
+	glAttachShader(data.program, vertex_shader);
 	assert(glGetError() == GL_NO_ERROR);
 
-	glLinkProgram(shader_program);
+	/* setup a fragment shader */
+	GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
 	assert(glGetError() == GL_NO_ERROR);
 
-	glDeleteShader(compute_shader);
-
-	glUseProgram(shader_program);
+	const char *fshader_source = FRAGMENT_SHADER;
+	glShaderSource(fragment_shader, 1, &fshader_source, NULL);
 	assert(glGetError() == GL_NO_ERROR);
 
-	/* dispatch computation */
-	glDispatchCompute(1, 1, 1);
+	glCompileShader(fragment_shader);
 	assert(glGetError() == GL_NO_ERROR);
 
-	printf("Compute shader dispatched and finished successfully\n");
+	glAttachShader(data.program, fragment_shader);
+	assert(glGetError() == GL_NO_ERROR);
+
+	/* continue */
+	glBindAttribLocation(data.program, 0, "vPosition");
+	assert(glGetError() == GL_NO_ERROR);
+
+	glLinkProgram(data.program);
+	assert(glGetError() == GL_NO_ERROR);
+
+	glDeleteShader(vertex_shader);
+	glDeleteShader(fragment_shader);
+
+	draw(&data);
+	assert(glGetError() == GL_NO_ERROR);
+
+	dump(&data);
+
+	printf("Application dispatched and finished successfully\n");
 
 	/* free stuff */
-	glDeleteProgram(shader_program);
-	eglDestroyContext(egl_dpy, core_ctx);
-	eglTerminate(egl_dpy);
-	gbm_device_destroy(gbm);
-	close(fd);
-
+	glDeleteProgram(data.program);
+	eglDestroyContext(data.display, data.context);
+	eglTerminate(data.display);
 	return 0;
 }
