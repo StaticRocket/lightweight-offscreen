@@ -56,8 +56,14 @@ void dump(ContextData *data)
 
 void draw(ContextData *data)
 {
-	GLfloat vVertices[] = { 0.0f, 0.5f, 0.0f,  -0.5f, -0.5f,
-				0.0f, 0.5f, -0.5f, 0.0f };
+	// clang-format off
+	GLfloat vVertices[] = {
+		0.0f, 0.5f, 0.0f,
+		-0.5f, -0.5f, 0.0f,
+		0.5f, -0.5f, 0.0f,
+	};
+	// clang-format on
+
 	// Set the viewport
 	glViewport(0, 0, data->width, data->height);
 	// Clear the color buffer
@@ -89,19 +95,17 @@ int32_t main(int32_t argc, char *argv[])
 	res = eglInitialize(data.display, NULL, NULL);
 	assert(res);
 
-	static const EGLint config_attribs[] = { EGL_RED_SIZE,
-						 8,
-						 EGL_GREEN_SIZE,
-						 8,
-						 EGL_BLUE_SIZE,
-						 8,
-						 EGL_ALPHA_SIZE,
-						 8,
-						 EGL_SURFACE_TYPE,
-						 EGL_PBUFFER_BIT,
-						 EGL_RENDERABLE_TYPE,
-						 EGL_OPENGL_ES2_BIT,
-						 EGL_NONE };
+	// clang-format off
+	static const EGLint config_attribs[] = {
+		EGL_RED_SIZE, 8,
+		EGL_GREEN_SIZE, 8,
+		EGL_BLUE_SIZE, 8,
+		EGL_ALPHA_SIZE, 8,
+		EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+		EGL_NONE,
+	};
+	// clang-format on
 
 	res = eglChooseConfig(data.display, config_attribs, &cfg, 1, &count);
 	assert(res);
@@ -109,14 +113,24 @@ int32_t main(int32_t argc, char *argv[])
 	res = eglBindAPI(EGL_OPENGL_ES_API);
 	assert(res);
 
-	static const EGLint context_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2,
-						  EGL_NONE };
+	// clang-format off
+	static const EGLint context_attribs[] = {
+		EGL_CONTEXT_CLIENT_VERSION, 2,
+		EGL_NONE,
+	};
+	// clang-format on
+
 	data.context = eglCreateContext(data.display, cfg, EGL_NO_CONTEXT,
 					context_attribs);
 	assert(data.context != EGL_NO_CONTEXT);
 
-	EGLint surface_attribs[] = { EGL_WIDTH, data.width, EGL_HEIGHT, data.height,
-				     EGL_NONE };
+	// clang-format off
+	EGLint surface_attribs[] = {
+		EGL_WIDTH, data.width,
+		EGL_HEIGHT, data.height,
+		EGL_NONE,
+	};
+	// clang-format on
 
 	data.surface =
 		eglCreatePbufferSurface(data.display, cfg, surface_attribs);
