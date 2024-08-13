@@ -8,6 +8,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 #define OUTPUT_FILENAME "out.bin"
 
@@ -40,14 +41,16 @@ typedef struct _ContextData {
 
 void dump(ContextData *data)
 {
-	GLubyte *buffer = malloc(1920 * 1080 * 4);
+	long long buffer_size = data->width * data->height * 4;
+	GLubyte *buffer = malloc(buffer_size);
 	int fd;
 
 	glReadPixels(0, 0, data->width, data->height, GL_RGBA, GL_UNSIGNED_BYTE,
 		     buffer);
 
-	fd = open(OUTPUT_FILENAME, O_CREAT | O_WRONLY);
-	write(fd, buffer, 1920 * 1080 * 4);
+	fd = open(OUTPUT_FILENAME, O_CREAT | O_WRONLY | O_TRUNC,
+		  S_IRUSR | S_IWUSR);
+	write(fd, buffer, buffer_size);
 	free(buffer);
 }
 
@@ -112,7 +115,7 @@ int32_t main(int32_t argc, char *argv[])
 					context_attribs);
 	assert(data.context != EGL_NO_CONTEXT);
 
-	EGLint surface_attribs[] = { EGL_WIDTH, 1920, EGL_HEIGHT, 1080,
+	EGLint surface_attribs[] = { EGL_WIDTH, data.width, EGL_HEIGHT, data.height,
 				     EGL_NONE };
 
 	data.surface =
