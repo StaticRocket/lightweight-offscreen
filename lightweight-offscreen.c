@@ -37,6 +37,7 @@ typedef struct _ContextData {
 	EGLSurface surface;
 	EGLDisplay display;
 	EGLContext context;
+	EGLConfig config;
 } ContextData;
 
 void dump(ContextData *data)
@@ -78,20 +79,56 @@ void draw(ContextData *data)
 	eglSwapBuffers(data->display, data->surface);
 }
 
-int32_t main(void)
+GLuint setup_shader(ContextData *data, const char *shader_source,
+		    GLint shader_type)
 {
-	bool res;
-	EGLConfig cfg;
+	GLuint shader = glCreateShader(shader_type);
+	assert(glGetError() == GL_NO_ERROR);
+
+	glShaderSource(shader, 1, &shader_source, NULL);
+	assert(glGetError() == GL_NO_ERROR);
+
+	glCompileShader(shader);
+	assert(glGetError() == GL_NO_ERROR);
+
+	glAttachShader(data->program, shader);
+	assert(glGetError() == GL_NO_ERROR);
+
+	return shader;
+}
+
+bool egl_create_surface(ContextData *data)
+{
+	// clang-format off
+	EGLint surface_attribs[] = {
+		EGL_WIDTH, data->width,
+		EGL_HEIGHT, data->height,
+		EGL_NONE,
+	};
+	// clang-format on
+
+	data->surface = eglCreatePbufferSurface(data->display, data->config,
+						surface_attribs);
+	return (data->surface != EGL_NO_SURFACE);
+}
+
+bool egl_create_context(ContextData *data)
+{
+	// clang-format off
+	static const EGLint context_attribs[] = {
+		EGL_CONTEXT_CLIENT_VERSION, 2,
+		EGL_NONE,
+	};
+	// clang-format on
+
+	data->context = eglCreateContext(data->display, data->config,
+					 EGL_NO_CONTEXT, context_attribs);
+	return (data->context != EGL_NO_CONTEXT);
+}
+
+bool egl_choose_config(ContextData *data)
+{
 	EGLint count;
-	ContextData data = { .width = 1920, .height = 1080 };
-
-	/* setup EGL from the GBM device */
-	data.display = eglGetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA,
-					     EGL_DEFAULT_DISPLAY, NULL);
-	assert(data.display != NULL);
-
-	res = eglInitialize(data.display, NULL, NULL);
-	assert(res);
 
 	// clang-format off
 	static const EGLint config_attribs[] = {
@@ -105,82 +142,78 @@ int32_t main(void)
 	};
 	// clang-format on
 
-	res = eglChooseConfig(data.display, config_attribs, &cfg, 1, &count);
+	return eglChooseConfig(data->display, config_attribs, &data->config, 1,
+			       &count);
+}
+
+bool egl_init(ContextData *data)
+{
+	/* setup egl for surfaceless rendering */
+	data->display = eglGetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA,
+					      EGL_DEFAULT_DISPLAY, NULL);
+	assert(data->display != NULL);
+
+	return eglInitialize(data->display, NULL, NULL);
+}
+
+int32_t main(void)
+{
+	bool res;
+	ContextData data = { .width = 1920, .height = 1080 };
+
+	/* choose a display under the surfacless platform */
+	res = egl_init(&data);
 	assert(res);
 
+	/* pick a known universal config to play with */
+	res = egl_choose_config(&data);
+	assert(res);
+
+	/* bind the gles api to this thread */
 	res = eglBindAPI(EGL_OPENGL_ES_API);
 	assert(res);
 
-	// clang-format off
-	static const EGLint context_attribs[] = {
-		EGL_CONTEXT_CLIENT_VERSION, 2,
-		EGL_NONE,
-	};
-	// clang-format on
+	/* create a context for the given config */
+	res = egl_create_context(&data);
+	assert(res);
 
-	data.context = eglCreateContext(data.display, cfg, EGL_NO_CONTEXT,
-					context_attribs);
-	assert(data.context != EGL_NO_CONTEXT);
+	/* create a pbuffer to render to */
+	res = egl_create_surface(&data);
+	assert(res);
 
-	// clang-format off
-	EGLint surface_attribs[] = {
-		EGL_WIDTH, data.width,
-		EGL_HEIGHT, data.height,
-		EGL_NONE,
-	};
-	// clang-format on
-
-	data.surface =
-		eglCreatePbufferSurface(data.display, cfg, surface_attribs);
-	assert(data.surface != EGL_NO_SURFACE);
-
+	/* make the pbuffer the current surface */
 	res = eglMakeCurrent(data.display, data.surface, data.surface,
 			     data.context);
 	assert(res);
 
+	/* create a program to attach shaders to */
 	data.program = glCreateProgram();
 
-	/* setup a vertex shader */
-	GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
-	assert(glGetError() == GL_NO_ERROR);
+	/* setup a vertex shader and register it with the program */
+	GLuint vertex_shader =
+		setup_shader(&data, VERTEX_SHADER, GL_VERTEX_SHADER);
 
-	const char *shader_source = VERTEX_SHADER;
-	glShaderSource(vertex_shader, 1, &shader_source, NULL);
-	assert(glGetError() == GL_NO_ERROR);
+	/* setup a fragment shader and register it with the program */
+	GLuint fragment_shader =
+		setup_shader(&data, FRAGMENT_SHADER, GL_FRAGMENT_SHADER);
 
-	glCompileShader(vertex_shader);
-	assert(glGetError() == GL_NO_ERROR);
-
-	glAttachShader(data.program, vertex_shader);
-	assert(glGetError() == GL_NO_ERROR);
-
-	/* setup a fragment shader */
-	GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
-	assert(glGetError() == GL_NO_ERROR);
-
-	const char *fshader_source = FRAGMENT_SHADER;
-	glShaderSource(fragment_shader, 1, &fshader_source, NULL);
-	assert(glGetError() == GL_NO_ERROR);
-
-	glCompileShader(fragment_shader);
-	assert(glGetError() == GL_NO_ERROR);
-
-	glAttachShader(data.program, fragment_shader);
-	assert(glGetError() == GL_NO_ERROR);
-
-	/* continue */
+	/* bind vPosition to index 0 for our vertex shader */
 	glBindAttribLocation(data.program, 0, "vPosition");
 	assert(glGetError() == GL_NO_ERROR);
 
+	/* link the program to test shaders */
 	glLinkProgram(data.program);
 	assert(glGetError() == GL_NO_ERROR);
 
+	/* flag shaders for deletion */
 	glDeleteShader(vertex_shader);
 	glDeleteShader(fragment_shader);
 
+	/* render a frame */
 	draw(&data);
 	assert(glGetError() == GL_NO_ERROR);
 
+	/* dump frame contents to file */
 	dump(&data);
 
 	printf("Application dispatched and finished successfully\n");
