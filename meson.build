@@ -2,7 +2,7 @@ project(
   'lightweight-offscreen',
   'c',
   version : '0.0.1',
-  license : 'CC0',
+  license : 'CC0-1.0',
   meson_version : '>= 0.47',
   default_options : ['c_std=gnu99', 'warning_level=2'],
 )
