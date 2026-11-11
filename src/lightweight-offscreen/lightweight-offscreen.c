@@ -33,6 +33,7 @@ typedef struct _ContextData {
 	int width;
 	int height;
 	GLuint program;
+	GLuint vertex_buffer;
 	EGLSurface surface;
 	EGLDisplay display;
 	EGLContext context;
@@ -57,12 +58,13 @@ void dump(ContextData *data)
 bool draw(ContextData *data)
 {
 	GLenum glres = GL_NO_ERROR;
+	GLint vposition_index;
 
 	// clang-format off
 	GLfloat vVertices[] = {
-		0.0f, 0.5f, 0.0f,
-		-0.5f, -0.5f, 0.0f,
-		0.5f, -0.5f, 0.0f,
+		0.0f, 0.5f, 0.1f, 1.0f,
+		-0.5f, -0.5f, 0.1f, 1.0f,
+		0.5f, -0.5f, 0.1f, 1.0f,
 	};
 	// clang-format on
 
@@ -90,21 +92,24 @@ bool draw(ContextData *data)
 		goto RenderExit;
 	}
 
-	/* load the vertex data */
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, vVertices);
+	/* prime the vertex buffer */
+	glGenBuffers(1, &data->vertex_buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, data->vertex_buffer);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vVertices), vVertices,
+		     GL_STATIC_DRAW);
+
+	/* get vPosition location */
+	vposition_index = glGetAttribLocation(data->program, "vPosition");
 	glres = glGetError();
 	if (glres != GL_NO_ERROR) {
-		printf("%s %x\n", "Failed to assign vertex attribute data. GL error:", glres);
+		printf("%s %x\n",
+		       "Failed to lookup vPosition. GL error:", glres);
 		goto RenderExit;
 	}
 
-	/* enable usage of the vertex data */
-	glEnableVertexAttribArray(0);
-	glres = glGetError();
-	if (glres != GL_NO_ERROR) {
-		printf("%s %x\n", "Failed to use vertex attribute data. GL error:", glres);
-		goto RenderExit;
-	}
+	/* specify how to read buffer data and what to assocaite it with */
+	glVertexAttribPointer(vposition_index, 4, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(vposition_index);
 
 	/* draw the arrays with the given vertex attributes */
 	glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -294,14 +299,6 @@ int32_t main(void)
 		goto ExitProgram;
 	}
 
-	/* bind vPosition to index 0 for our vertex shader */
-	glBindAttribLocation(data.program, 0, "vPosition");
-	glres = glGetError();
-	if (glres != GL_NO_ERROR) {
-		printf("%s %x\n", "Failed to bind attribute. GL error:", glres);
-		goto ExitProgram;
-	}
-
 	/* link the program to test shaders */
 	glLinkProgram(data.program);
 	glres = glGetError();
@@ -320,8 +317,8 @@ int32_t main(void)
 	/* send the buffer to the front */
 	res = eglSwapBuffers(data.display, data.surface);
 	if (!res) {
-		printf("%s %x\n", "Failed to swap buffers. EGL error:",
-		       eglGetError());
+		printf("%s %x\n",
+		       "Failed to swap buffers. EGL error:", eglGetError());
 		goto ExitProgram;
 	}
 
